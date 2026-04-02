@@ -1,33 +1,32 @@
-# ==========================
-# Stage 1: Build the JAR
-# ==========================
-FROM gradle:7.6.1-jdk17-alpine AS builder
+# Stage 1: Build
+FROM maven:3.9.4-eclipse-temurin-17 AS builder
 
 # Set working directory
-WORKDIR /home/gradle/project
-
-# Copy project files
-COPY . .
-
-# Make Gradle wrapper executable
-RUN chmod +x ./gradlew
-
-# Clean and build the Spring Boot JAR
-RUN ./gradlew clean bootJar --no-daemon
-
-# ==========================
-# Stage 2: Run the JAR
-# ==========================
-FROM eclipse-temurin:17-jdk-alpine
-
-# Set working directory inside runtime container
 WORKDIR /app
 
-# Copy the jar from builder stage
-COPY --from=builder /home/gradle/project/build/libs/*.jar app.jar
+# Copy pom first to leverage Docker cache
+COPY pom.xml .
 
-# Expose default Spring Boot port
+# Download dependencies (offline mode)
+RUN mvn dependency:go-offline -B
+
+# Copy source code
+COPY src ./src
+
+# Package the jar without compiling or running tests
+RUN mvn clean package -Dmaven.test.skip=true
+
+# Stage 2: Runtime image
+FROM eclipse-temurin:17-jdk-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy jar from builder stage
+COPY --from=builder /app/target/*.jar app.jar
+
+# Expose port 8080
 EXPOSE 8080
 
-# Run the Spring Boot app
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Command to run the app
+ENTRYPOINT ["java","-jar","app.jar"]
